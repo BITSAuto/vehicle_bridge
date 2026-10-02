@@ -13,11 +13,9 @@ relay states (49/50/51) the real motor actually accepts -- see
 relay_steering.py for why this can't be a proportional value.
 
 Throttle is open-loop (no ROS input maps to brake/lights/indicators yet; see
-README). /steering/angle itself is expected to already be published by
-whatever reads the real rotary encoder -- this package does not attempt to
-derive it from the Arduino's serial response, since that response format
-isn't established anywhere in this workspace (see
-private-notes/tesla_sim/04-open-questions.md).
+README). /steering/angle comes from encoder_node, which reads the steering
+encoder's own MCU over a separate USB serial port. If it stops arriving for
+encoder_timeout_s, the bridge treats feedback as lost and holds neutral+stop.
 """
 import math
 import time
@@ -51,13 +49,15 @@ class SerialBridgeNode(Node):
 
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('dry_run', False)
+        self.declare_parameter('encoder_timeout_s', 0.5)
         port = self.get_parameter('serial_port').value
         dry_run = self.get_parameter('dry_run').value
+        self._encoder_timeout_s = float(self.get_parameter('encoder_timeout_s').value)
 
         self._steering = RelaySteeringController()
         self._target_deg = 0.0
         self._encoder_deg = 0.0
-        self._encoder_received = False
+        self._last_encoder_s = None
         self._commanded_speed_kmh = 0.0
         self._last_serial_time = 0.0
 
@@ -88,7 +88,7 @@ class SerialBridgeNode(Node):
 
     def _on_encoder(self, msg):
         self._encoder_deg = float(msg.data)
-        self._encoder_received = True
+        self._last_encoder_s = time.monotonic()
 
     def _throttle_byte(self):
         # Unverified linear mapping -- see MAX_SPEED_KMH's comment above.
@@ -100,14 +100,15 @@ class SerialBridgeNode(Node):
     def _control_tick(self):
         now = time.monotonic()
 
-        if not self._encoder_received:
-            # No real angle feedback yet -- actively command neutral+stop
-            # rather than silently skip a tick, which would leave whatever
-            # relay state was last sent (possibly mid-turn) engaged on real
-            # hardware with nothing correcting it.
+        if self._last_encoder_s is None or now - self._last_encoder_s > self._encoder_timeout_s:
+            # No fresh angle feedback -- actively command neutral+stop rather
+            # than silently skip a tick, which would leave whatever relay
+            # state was last sent (possibly mid-turn) engaged on real hardware
+            # with nothing correcting it.
             self._steering.reset()
             self.get_logger().warn(
-                'No /steering/angle received yet -- forcing neutral+stop.', throttle_duration_sec=2.0)
+                'No /steering/angle within {}s -- forcing neutral+stop.'.format(self._encoder_timeout_s),
+                throttle_duration_sec=2.0)
             if self._ser is not None and (now - self._last_serial_time) >= MIN_SERIAL_INTERVAL_S:
                 self._last_serial_time = now
                 cmd = build_serial_command(b_throttle=THROTTLE_NEUTRAL, d_steering=50)
