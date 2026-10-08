@@ -148,8 +148,21 @@ protocol scripts:**
   `j_reverse` flag or the `<50` braking range at all -- this bridge's
   interpretation is a reasonable reading of the protocol, not something
   confirmed against real hardware behavior.
-- Brake, lights, horn, indicators (`I`, `E`, `F`, `G`, `H`) have no ROS input
-  wired to them at all yet -- always sent as `0`.
+- Lights, horn and indicators (`E`, `F`, `G`, `H`) have no ROS input wired to
+  them yet -- always sent as `0`.
+
+### Braking: emergency only
+
+The cart's brake (`I`) can't modulate: it stops the vehicle instantly and can
+damage it. Normal driving therefore never brakes. A commanded speed of 0 sends
+the neutral throttle byte (`50`), and the cart **coasts** to a stop on
+friction; the bridge never sends the `<50` braking range.
+
+The brake has exactly one input: `/vehicle/emergency_brake` (`std_msgs/Bool`).
+`True` sends `I1` with neutral throttle on every tick until `False` arrives.
+It is meant for a safety monitor's last-resort stop, not for speed control.
+`tesla_sim` exposes the same topic with the same semantics (instant stop). The
+bridge also sends one brake command when it shuts down, as a fail-safe.
 
 Before trusting this on a real, powered vehicle: verify the throttle mapping
 at low speed first, and confirm reverse actually engages reverse rather than
