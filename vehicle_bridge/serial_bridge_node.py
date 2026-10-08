@@ -12,12 +12,13 @@ RelaySteeringController tesla_sim's driver uses, producing one of the three
 relay states (49/50/51) the real motor actually accepts -- see
 relay_steering.py for why this can't be a proportional value.
 
-Throttle is open-loop (no ROS input maps to brake/lights/indicators yet; see
-README). /steering/angle itself is expected to already be published by
-whatever reads the real rotary encoder -- this package does not attempt to
-derive it from the Arduino's serial response, since that response format
-isn't established anywhere in this workspace (see
-private-notes/tesla_sim/04-open-questions.md).
+Throttle is open-loop and never brakes: speed 0 sends the neutral throttle
+byte (50), so the cart coasts to a stop on friction. The cart's brake stops it
+instantly and can damage it, so the only way to apply it is
+/vehicle/emergency_brake (std_msgs/Bool, True = brake held). Lights and
+indicators have no ROS input yet (see README). /steering/angle comes from encoder_node, which reads the steering
+encoder's own MCU over a separate USB serial port. If it stops arriving for
+encoder_timeout_s, the bridge treats feedback as lost and holds neutral+stop.
 """
 import math
 import time
@@ -25,7 +26,7 @@ import time
 import rclpy
 from ackermann_msgs.msg import AckermannDrive
 from rclpy.node import Node
-from std_msgs.msg import Float32
+from std_msgs.msg import Bool, Float32
 
 from vehicle_bridge.relay_steering import RelaySteeringController
 from vehicle_bridge.serial_command import THROTTLE_NEUTRAL, SERIAL_BAUD, build_serial_command
@@ -51,14 +52,17 @@ class SerialBridgeNode(Node):
 
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('dry_run', False)
+        self.declare_parameter('encoder_timeout_s', 0.5)
         port = self.get_parameter('serial_port').value
         dry_run = self.get_parameter('dry_run').value
+        self._encoder_timeout_s = float(self.get_parameter('encoder_timeout_s').value)
 
         self._steering = RelaySteeringController()
         self._target_deg = 0.0
         self._encoder_deg = 0.0
-        self._encoder_received = False
+        self._last_encoder_s = None
         self._commanded_speed_kmh = 0.0
+        self._emergency_brake = False
         self._last_serial_time = 0.0
 
         self._ser = None
@@ -75,6 +79,7 @@ class SerialBridgeNode(Node):
 
         self.create_subscription(AckermannDrive, 'cmd_ackermann', self._on_cmd_ackermann, 1)
         self.create_subscription(Float32, 'steering/angle', self._on_encoder, 10)
+        self.create_subscription(Bool, 'vehicle/emergency_brake', self._on_emergency_brake, 10)
 
         self._timer = self.create_timer(CONTROL_TICK_S, self._control_tick)
 
@@ -86,9 +91,16 @@ class SerialBridgeNode(Node):
         self._target_deg = math.degrees(msg.steering_angle)
         self._commanded_speed_kmh = msg.speed
 
+    def _on_emergency_brake(self, msg):
+        if msg.data and not self._emergency_brake:
+            self.get_logger().warn('EMERGENCY BRAKE ENGAGED')
+        elif not msg.data and self._emergency_brake:
+            self.get_logger().info('Emergency brake released')
+        self._emergency_brake = bool(msg.data)
+
     def _on_encoder(self, msg):
         self._encoder_deg = float(msg.data)
-        self._encoder_received = True
+        self._last_encoder_s = time.monotonic()
 
     def _throttle_byte(self):
         # Unverified linear mapping -- see MAX_SPEED_KMH's comment above.
@@ -100,17 +112,19 @@ class SerialBridgeNode(Node):
     def _control_tick(self):
         now = time.monotonic()
 
-        if not self._encoder_received:
-            # No real angle feedback yet -- actively command neutral+stop
-            # rather than silently skip a tick, which would leave whatever
-            # relay state was last sent (possibly mid-turn) engaged on real
-            # hardware with nothing correcting it.
+        if self._last_encoder_s is None or now - self._last_encoder_s > self._encoder_timeout_s:
+            # No fresh angle feedback -- actively command neutral+stop rather
+            # than silently skip a tick, which would leave whatever relay
+            # state was last sent (possibly mid-turn) engaged on real hardware
+            # with nothing correcting it.
             self._steering.reset()
             self.get_logger().warn(
-                'No /steering/angle received yet -- forcing neutral+stop.', throttle_duration_sec=2.0)
+                'No /steering/angle within {}s -- forcing neutral+stop.'.format(self._encoder_timeout_s),
+                throttle_duration_sec=2.0)
             if self._ser is not None and (now - self._last_serial_time) >= MIN_SERIAL_INTERVAL_S:
                 self._last_serial_time = now
-                cmd = build_serial_command(b_throttle=THROTTLE_NEUTRAL, d_steering=50)
+                cmd = build_serial_command(b_throttle=THROTTLE_NEUTRAL, d_steering=50,
+                                           i_brake=int(self._emergency_brake))
                 try:
                     self._ser.write(cmd.encode())
                 except Exception as e:
@@ -119,12 +133,15 @@ class SerialBridgeNode(Node):
 
         relay = self._steering.update(self._target_deg, self._encoder_deg, now)
         throttle, reverse = self._throttle_byte()
+        if self._emergency_brake:
+            throttle, reverse = THROTTLE_NEUTRAL, 0      # never drive against the brake
 
         if (now - self._last_serial_time) < MIN_SERIAL_INTERVAL_S:
             return
         self._last_serial_time = now
 
-        cmd = build_serial_command(b_throttle=throttle, d_steering=relay, j_reverse=reverse)
+        cmd = build_serial_command(b_throttle=throttle, d_steering=relay, j_reverse=reverse,
+                                   i_brake=int(self._emergency_brake))
         if self._ser is not None:
             try:
                 self._ser.write(cmd.encode())

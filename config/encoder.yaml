@@ -1,0 +1,7 @@
+# Steering encoder calibration for encoder_node. See README "Calibrating degrees_per_count".
+# With a --symlink-install build, edits here take effect on the next launch without rebuilding.
+encoder_node:
+  ros__parameters:
+    degrees_per_count: 0.006  # provisional: +-15 deg at +-2500 counts, not measured on the vehicle
+    invert: false           # true if turning right reads negative on /steering/angle
+    offset_deg: 0.0         # added after scaling, for a zero that isn't exactly straight
