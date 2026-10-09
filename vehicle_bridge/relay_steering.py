@@ -25,7 +25,7 @@ RELAY_RIGHT = 51
 
 # Real hardware timing, from cart_controller/README.md (independently
 # verified against that file directly -- see
-# private-notes/tesla_sim/03-established-facts.md): the motor takes ~30ms to
+# project-docs/04-knowledge/steering-hardware.md): the motor takes ~30ms to
 # physically react, so a pulse must be held >=35ms once started, and one such
 # hold moves the real steering ~0.45 degrees. Corroborated independently by
 # road_segmentation/rotary_encoder_driver.py's own SIM_DEG_PER_SEC=12.0

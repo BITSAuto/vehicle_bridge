@@ -8,8 +8,8 @@ This exact function was independently copy-pasted four times before this
 package existed: road_segmentation's drivebywire.py, rotary_encoder_driver.py,
 and cart_controller's controller.py all define byte-for-byte the same
 `build_serial_command`. This module replaces all of those call sites' need to
-keep their own copy in sync -- see private-notes/tesla_sim/02-decision-log.md
-for why a shared module was chosen over a fifth copy in vehicle_bridge itself.
+keep their own copy in sync -- see
+project-docs/03-decisions/D-002-one-copy-of-the-serial-protocol.md.
 
 Channel meanings, from reading the above three scripts:
     A            unused in every script read (always 0)
@@ -24,7 +24,8 @@ Channel meanings, from reading the above three scripts:
                  is explicitly sent (cart_controller/README.md).
     E left indicator, F horn, G light, H right indicator   0/1, no ROS
                  mapping exists yet anywhere in this workspace.
-    I brake      0/1, no ROS mapping exists yet.
+    I brake      0/1. Set only by /vehicle/emergency_brake (and once at
+                 shutdown); normal driving never brakes.
     J reverse    0/1, gear-selection flag, separate from the throttle byte.
 """
 

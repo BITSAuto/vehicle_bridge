@@ -7,6 +7,10 @@ behavior in simulation. The point of both living in one package: the same
 either the simulator or the real vehicle -- swapping which one you're talking
 to is a launch-file choice, not a different control interface.
 
+Design history, decisions, verified facts, open questions, known bugs and
+status are in the [project docs](project-docs/README.md). Read them before
+changing anything, and update them with every change.
+
 ## Why this needs to exist: the vehicle has no proportional steering input
 
 The real vehicle steers via a three-state relay, not a servo:
