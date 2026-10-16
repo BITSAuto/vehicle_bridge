@@ -15,3 +15,5 @@ One page per decision. To reverse one, add a new decision that supersedes it.
 | [D-009](D-009-emergency-brake-topic-is-the-only-brake.md) | 2026-10-08 | Emergency-brake topic is the only brake | Accepted |
 | [D-010](D-010-brake-on-shutdown.md) | 2026-09-09 | Brake once on shutdown | Accepted (revisit) |
 | [D-011](D-011-project-docs.md) | 2026-10-09 | `project-docs/` replaces private notes | Accepted |
+| [D-012](D-012-compensate-steering-actuation-delay.md) | 2026-10-15 | Compensate the steering actuation delay; learn the actuator | Accepted |
+| [D-013](D-013-command-timeout-coasts.md) | 2026-10-15 | Lost driver → coast, steering stopped; clamp targets | Accepted |

@@ -7,8 +7,8 @@
 | [Q-003](Q-003-real-encoder-mcu-format-and-scale.md) | Real encoder MCU format and scale | Open | high |
 | [Q-004](Q-004-real-cart-speed-source.md) | Where will measured speed come from? | Open | high |
 | [Q-005](Q-005-steering-lock-not-measured.md) | Real steering lock and rate | Open | medium |
-| [Q-006](Q-006-no-command-timeout.md) | No `/cmd_ackermann` timeout | Open | **high (safety)** |
-| [Q-007](Q-007-no-steering-clamp.md) | No steering clamp | Open | medium |
+| [Q-006](Q-006-no-command-timeout.md) | No `/cmd_ackermann` timeout | Resolved 2026-10-15 | **high (safety)** |
+| [Q-007](Q-007-no-steering-clamp.md) | No steering clamp | Resolved 2026-10-15 | medium |
 | [Q-008](Q-008-not-yet-built-on-jazzy.md) | Not yet built on Jazzy | Open | medium |
 | [Q-009](Q-009-lights-horn-indicators.md) | Lights, horn, indicators unmapped | Open | low |
 | [Q-010](Q-010-board-response-format.md) | Board response format | Open | low |

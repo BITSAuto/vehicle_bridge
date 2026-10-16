@@ -31,3 +31,10 @@ carla sim". `RelaySteeringController` follows the closed-loop one.
 **Assumed** ±15°: `cart_contorller`'s `MAX_STEER_DEG`, a software limit. The
 real road-wheel angle at lock has never been measured
 ([Q-005](../06-open-questions/Q-005-steering-lock-not-measured.md)).
+
+### Actuation delay (2026-10-15)
+- ~100–150 ms from a move command to the steering starting to move, and about
+  the same for a stop. **Documented** (owner, in conversation); not measured.
+  The controller now measures its own and logs it every 10 s
+  ("Steering actuator learned: start … ms, stop … ms"): record those numbers
+  from the first powered test here.

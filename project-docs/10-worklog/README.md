@@ -33,6 +33,7 @@ File name: `YYYY-MM-DD-short-slug.md`. Several pages on one day are fine.
 
 | Date | Page |
 | --- | --- |
+| 2026-10-15 | [Steering overrun, command timeout, clamp](2026-10-15-relay-overrun.md) |
 | 2026-10-09 | [Project docs](2026-10-09-project-docs.md) |
 | 2026-10-08 | [Emergency brake topic](2026-10-08-emergency-brake.md) |
 | 2026-10-02 | [Steering encoder node](2026-10-02-steering-encoder.md) |

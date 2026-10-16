@@ -32,3 +32,28 @@
 - **Bug:** `serial_command.py` says "I brake 0/1, no ROS mapping exists yet",
   written before `/vehicle/emergency_brake`.
 - **Fix:** docstring updated with this book.
+
+## M-06: The reply drain could stall the bridge forever
+- **Found:** 2026-10-15, by reading the code (not seen on hardware)
+- **Bug:** after every frame, `while self._ser.readline(): pass` with a 50 ms
+  read timeout. Every tick blocked ≥ 50 ms (the "40 Hz" loop ran at ≤ 20 Hz and
+  delayed the encoder callbacks with it), and against a board that keeps
+  replying the loop never ends: the bridge stops ticking with the last relay
+  state engaged, and the motor's infinite run-on takes the steering to the lock.
+- **Fix:** read only `in_waiting` bytes. Checked with `tools/fake_cart.py`, a
+  fake board that replies continuously.
+- **Rule:** nothing in a control tick may block on I/O.
+
+## M-07: Frames went out every 50 ms, not every 30 ms
+- **Found:** 2026-10-15, counting frames at a fake board
+- **Bug:** a 25 ms tick against a 30 ms minimum frame interval skips every
+  other tick.
+- **Fix:** 10 ms tick; frames now go out every ~30–40 ms (27–28/s measured).
+
+## M-08: tesla_sim timed the relay controller with the wall clock
+- **Found:** 2026-10-15
+- **Bug:** `tesla_driver.py` passed `time.monotonic()` while the sim runs at
+  ~0.3× real time (headless on the Orin), so the 35 ms hold and anything
+  timing-based was wrong in sim; a learning controller would have learned a
+  3× slow actuator.
+- **Fix (in tesla_sim):** pass `robot.getTime()`.

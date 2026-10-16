@@ -16,8 +16,10 @@ ros2 topic pub -r 10 /cmd_ackermann ackermann_msgs/msg/AckermannDrive "{speed: 5
 ros2 topic pub --once /vehicle/emergency_brake std_msgs/msg/Bool "{data: true}"   # emergencies only
 ```
 - Speed is km/h; 0 coasts. Steering is radians, + = right.
-- There is **no command timeout yet**: stopping the publisher does not stop
-  the cart ([Q-006](../06-open-questions/Q-006-no-command-timeout.md)). Publish
-  speed 0 and let it coast.
+- If `/cmd_ackermann` stops for 0.5 s (`cmd_timeout_s`), the bridge coasts:
+  neutral throttle, steering stopped, no brake ([D-013](../03-decisions/D-013-command-timeout-coasts.md)).
+  A one-shot `ros2 topic pub --once` therefore only acts for 0.5 s: publish
+  with `-r 10`.
+- Steering targets are clamped to ±15° (`max_steer_deg`).
 - **Stopping the bridge brakes the cart** (one brake frame at shutdown).
   Bring it to rest by coasting first.
