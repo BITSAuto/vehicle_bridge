@@ -30,3 +30,16 @@ path may change) reconnects and re-zeroes.
 
 The script above was checked to emit the expected bytes (2026-10-09); the
 original 2026-10-02 script wasn't kept.
+
+## The whole cart: `tools/fake_cart.py` (2026-10-15)
+Fakes both boards at once: the drive-by-wire board (parses frames, **replies
+continuously**, moves the wheels 0.12 s after each relay command, lock ±20°)
+and the encoder MCU fed by that wheel angle, so the steering loop is closed.
+```bash
+python3 tools/fake_cart.py                  # prints BOARD /dev/pts/N ENCODER /dev/pts/M
+ros2 launch vehicle_bridge vehicle_bridge.launch.py serial_port:=/dev/pts/N encoder_port:=/dev/pts/M
+ros2 topic pub -r 10 /cmd_ackermann ackermann_msgs/msg/AckermannDrive "{speed: 3.0, steering_angle: 0.14}"
+```
+Its log shows angle, relay, throttle, brake and frames/s once a second.
+Restart it between runs: the encoder zeroes on start, so a fake left at an
+angle moves its lock.

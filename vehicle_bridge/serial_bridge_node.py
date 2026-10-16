@@ -19,6 +19,9 @@ instantly and can damage it, so the only way to apply it is
 indicators have no ROS input yet (see README). /steering/angle comes from encoder_node, which reads the steering
 encoder's own MCU over a separate USB serial port. If it stops arriving for
 encoder_timeout_s, the bridge treats feedback as lost and holds neutral+stop.
+If /cmd_ackermann stops arriving for cmd_timeout_s (a crashed or disconnected
+driver), it sends neutral throttle and stops the steering where it is -- it
+coasts, it never brakes. Steering targets are clamped to +/-max_steer_deg.
 """
 import math
 import time
@@ -43,7 +46,8 @@ except ImportError:
 MAX_SPEED_KMH = 7.0
 
 MIN_SERIAL_INTERVAL_S = 0.030  # matches cart_controller's own bus-protection interval
-CONTROL_TICK_S = 0.025         # 40 Hz -- responsive; relay's own 35ms hold still gates transitions
+CONTROL_TICK_S = 0.010         # 100 Hz, so a frame goes out as soon as MIN_SERIAL_INTERVAL_S allows (~33/s);
+                               # at 25 ms every other tick was skipped and frames went out every 50 ms
 
 
 class SerialBridgeNode(Node):
@@ -53,15 +57,21 @@ class SerialBridgeNode(Node):
         self.declare_parameter('serial_port', '/dev/ttyUSB0')
         self.declare_parameter('dry_run', False)
         self.declare_parameter('encoder_timeout_s', 0.5)
+        self.declare_parameter('cmd_timeout_s', 0.5)
+        self.declare_parameter('max_steer_deg', 15.0)
         port = self.get_parameter('serial_port').value
         dry_run = self.get_parameter('dry_run').value
         self._encoder_timeout_s = float(self.get_parameter('encoder_timeout_s').value)
+        self._cmd_timeout_s = float(self.get_parameter('cmd_timeout_s').value)
+        self._max_steer_deg = float(self.get_parameter('max_steer_deg').value)
 
         self._steering = RelaySteeringController()
         self._target_deg = 0.0
         self._encoder_deg = 0.0
         self._last_encoder_s = None
         self._commanded_speed_kmh = 0.0
+        self._last_cmd_s = None
+        self._limits_logged = {}
         self._emergency_brake = False
         self._last_serial_time = 0.0
 
@@ -88,8 +98,10 @@ class SerialBridgeNode(Node):
             '/steering/angle, MAX_SPEED_KMH={} (unverified, see README)'.format(MAX_SPEED_KMH))
 
     def _on_cmd_ackermann(self, msg):
-        self._target_deg = math.degrees(msg.steering_angle)
+        target = math.degrees(msg.steering_angle)
+        self._target_deg = max(-self._max_steer_deg, min(self._max_steer_deg, target))
         self._commanded_speed_kmh = msg.speed
+        self._last_cmd_s = time.monotonic()
 
     def _on_emergency_brake(self, msg):
         if msg.data and not self._emergency_brake:
@@ -111,6 +123,11 @@ class SerialBridgeNode(Node):
 
     def _control_tick(self):
         now = time.monotonic()
+        if self._steering.fits:
+            st = self._steering
+            self.get_logger().info(f'Steering actuator learned: start {st.d_start * 1000:.0f} ms, '
+                                   f'stop {st.d_stop * 1000:.0f} ms, speed x{st.gain:.2f}',
+                                   throttle_duration_sec=10.0)
 
         if self._last_encoder_s is None or now - self._last_encoder_s > self._encoder_timeout_s:
             # No fresh angle feedback -- actively command neutral+stop rather
@@ -121,34 +138,45 @@ class SerialBridgeNode(Node):
             self.get_logger().warn(
                 'No /steering/angle within {}s -- forcing neutral+stop.'.format(self._encoder_timeout_s),
                 throttle_duration_sec=2.0)
-            if self._ser is not None and (now - self._last_serial_time) >= MIN_SERIAL_INTERVAL_S:
-                self._last_serial_time = now
-                cmd = build_serial_command(b_throttle=THROTTLE_NEUTRAL, d_steering=50,
-                                           i_brake=int(self._emergency_brake))
-                try:
-                    self._ser.write(cmd.encode())
-                except Exception as e:
-                    self.get_logger().warn(f'Serial write failed: {e}')
+            self._send(now, THROTTLE_NEUTRAL, 50, 0)
+            return
+
+        if self._last_cmd_s is None or now - self._last_cmd_s > self._cmd_timeout_s:
+            # No driver: coast and stop the steering where it is (never brake).
+            self._steering.reset()
+            if self._last_cmd_s is not None:
+                self.get_logger().warn(
+                    'No /cmd_ackermann within {}s -- coasting, steering stopped.'.format(self._cmd_timeout_s),
+                    throttle_duration_sec=2.0)
+            self._send(now, THROTTLE_NEUTRAL, 50, 0)
             return
 
         relay = self._steering.update(self._target_deg, self._encoder_deg, now)
+        for d, lim in self._steering.limits.items():
+            if self._limits_logged.get(d) != lim:
+                self._limits_logged[d] = lim
+                self.get_logger().warn(f'Steering stalled at {lim:+.1f} deg: treating it as the lock until restart.')
         throttle, reverse = self._throttle_byte()
         if self._emergency_brake:
             throttle, reverse = THROTTLE_NEUTRAL, 0      # never drive against the brake
 
-        if (now - self._last_serial_time) < MIN_SERIAL_INTERVAL_S:
+        self._send(now, throttle, relay, reverse)
+
+    def _send(self, now, throttle, relay, reverse):
+        if self._ser is None or (now - self._last_serial_time) < MIN_SERIAL_INTERVAL_S:
             return
         self._last_serial_time = now
-
         cmd = build_serial_command(b_throttle=throttle, d_steering=relay, j_reverse=reverse,
                                    i_brake=int(self._emergency_brake))
-        if self._ser is not None:
-            try:
-                self._ser.write(cmd.encode())
-                while self._ser.readline():
-                    pass  # drain any response; not parsed (see module docstring)
-            except Exception as e:
-                self.get_logger().warn(f'Serial write failed: {e}')
+        try:
+            self._ser.write(cmd.encode())
+            # Drain replies without waiting: a blocking readline() loop stalled the
+            # tick >= 50 ms every time, and forever if the board streams replies --
+            # leaving the last relay state (possibly mid-turn) engaged.
+            if self._ser.in_waiting:
+                self._ser.read(self._ser.in_waiting)
+        except Exception as e:
+            self.get_logger().warn(f'Serial write failed: {e}')
 
     def destroy_node(self):
         if self._ser is not None and self._ser.is_open:

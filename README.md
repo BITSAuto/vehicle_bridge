@@ -58,6 +58,10 @@ This starts two nodes:
   If it has never received an angle, or the last one is older than
   `encoder_timeout_s` (0.5 s), it holds neutral throttle + steering stop and
   logs a warning every 2 s rather than driving blind.
+  It compensates the steering's actuation delay, which it measures itself, and
+  logs what it learned ("Steering actuator learned: start … ms, stop … ms").
+  If `/cmd_ackermann` stops for `cmd_timeout_s` (0.5 s) it coasts with the
+  steering stopped (never brakes); targets are clamped to ±`max_steer_deg` (15°).
 
 Read/write permission on both serial ports is required
 (`sudo usermod -a -G dialout $USER`, then re-login, is the usual fix).
